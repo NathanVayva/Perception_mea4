@@ -1,0 +1,98 @@
+import cv2 as cv
+import sys
+import numpy as np
+
+image = cv.imread("/home/nathan/Documents/mea4/Perception/balle_small.jpg")
+hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+def get_color(event, x, y, flags, param):
+    global ref_color
+    global ref_color_hsv
+    global passage 
+    passage = 0
+    if event == cv.EVENT_LBUTTONDOWN:
+        ref_color = image[y, x].tolist()  # BGR
+        print("Couleur sélectionnée (BGR):", ref_color)
+        ref_color_hsv = hsv_image[y, x].tolist()  # HSV
+        print("Couleur sélectionnée (HSV):", ref_color_hsv)
+
+if image is None:
+    print("Erreur : image introuvable.")
+else:
+    print("Image chargée avec succès !")
+
+    epsilon = 100
+    epsilon_hsv = [80 ,150, 255]
+
+    hauteur, largeur = image.shape[:2]
+    
+    cv.imshow("mon image", image)
+    cv.setMouseCallback("mon image", get_color)
+
+
+    while True:
+        # if 'ref_color' in globals():
+        #     lower_bound = np.array([max(0, c - epsilon) for c in ref_color])
+        #     upper_bound = np.array([min(255, c + epsilon) for c in ref_color])
+        #     mask = cv.inRange(image, lower_bound, upper_bound)
+        #     cv.imshow("mask_rgb", mask)
+
+        if 'ref_color_hsv' in globals():
+            lower_bound2 = np.array([max(0, c - e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
+            upper_bound2 = np.array([min(255, c + e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
+            mask2 = cv.inRange(hsv_image, lower_bound2, upper_bound2)
+            print(lower_bound2)
+
+            # ouverture
+            # Erosion
+            kernel = np.ones((5,5), np.uint8)
+            mask2_eroded = cv.erode(mask2,kernel, 1)
+            #dilation
+            mask2_new = cv.dilate(mask2_eroded,kernel, 1)
+
+            #fermeture
+            # dilation
+            kernel = np.ones((5,5), np.uint8)
+            mask2_dilated = cv.dilate(mask2_new,kernel, 1)
+            # erosion
+            mask2_new = cv.erode(mask2_dilated,kernel, 1)
+
+            # Calcul du centroïde
+            sum_i, sum_j, count = 0, 0, 0
+
+
+            # for i in range (hauteur):
+            #     for j in range (largeur):
+            #         if mask2[i,j] != 0:
+            #             sum_i += i
+            #             sum_j += j
+            #             count += 1
+            # center_i = sum_i // count
+            # center_j = sum_j // count
+            # cv.circle(mask2, (center_j, center_i), 5, 130, -1)
+            # cv.imshow("mask_hsv", mask2)
+            #cv.imshow("mask_hsv_new", mask2_new)
+
+            # Gradient
+            kernel_grad = np.ones((3,3))
+            mask2_grad = cv.morphologyEx(mask2_new, cv.MORPH_GRADIENT, kernel_grad )
+            cv.imshow("mask_hsv_grad", mask2_grad)
+            circles = cv.HoughCircles(mask2_grad,cv.HOUGH_GRADIENT ,dp=1, minDist=1,
+                          param1=10, param2=30, minRadius=10, maxRadius=1000)
+            
+            if (circles is not None and passage == 0) :
+                passage = 1
+                circles = np.uint16(np.around(circles))
+                    # circle[0,0]: x, circle[0,1]: y, circle[0,2]: rayon
+                circle = circles[0,0]
+                image_cercle = image.copy()  # Crée une copie de l'image originale
+                cv.circle(image_cercle, (circle[0], circle[1]), circle[2], (0, 255, 0), 2)  # Cercle vert sur l'image couleur
+                cv.circle(image_cercle, (circle[0], circle[1]), 2, (0, 0, 255), 3)     # Centre en rouge
+                print("cercle identifié")
+                cv.imshow("mon image", image_cercle) #recharge l'image
+                print(circle)
+
+        if cv.waitKey(1) & 0xFF == 27: #quit with ESC
+            break
+    
+    cv.destroyAllWindows()

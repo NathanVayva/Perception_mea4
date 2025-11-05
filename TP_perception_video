@@ -1,0 +1,111 @@
+import cv2 as cv
+import numpy as np
+# cap = cv.VideoCapture("/home/nathan/Documents/mea4/Perception/balle.mp4")  # Ouvre la vidéo
+
+# while cap.isOpened():
+#     ret, frame = cap.read()
+#     if not ret:
+#         break
+#     cv.imshow("video", frame)
+#     if cv.waitKey(1) & 0xFF == 27:  # Quitter avec Échap
+#         break
+
+# cap.release()
+# cv.destroyAllWindows()
+
+cap = cv.VideoCapture("/home/nathan/Documents/mea4/Perception/balle.mp4")
+
+# resize 
+# cv.namedWindow("mon image", cv.WINDOW_NORMAL)
+# cv.resizeWindow("mon image", 2*640, 2*480)  # fenêtre fixe 640x480
+
+ret, image = cap.read()
+hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+epsilon_hsv = [10 ,120, 120]
+passage = 0
+
+size_image = image.size
+shape_image = image.shape
+longueur = shape_image[0]
+largeur = shape_image[1]
+
+i=0
+j=0
+while i <= longueur and j <= largeur -5 and not 'reussite' in locals():
+    if 15 < hsv_image[i,j,0] < 20 and 150 < hsv_image[i,j,1] < 255 and 150 < hsv_image[i,j,2] < 230:
+        cv.circle(image, (j, i), 2, (0, 255, 0), 2)
+        global ref_color 
+        ref_color_hsv= hsv_image[i,j,:]
+        print("Couleur sélectionnée (HSV):", ref_color_hsv)
+        reussite = True
+    if i >= longueur - 5:
+         j+=5
+         i=0
+    i+=5
+cv.imshow("mon image", image)
+
+
+
+while cap.isOpened():
+        ret, image = cap.read()
+        if not ret:
+            break
+        hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+    
+    
+        if 'ref_color_hsv' in globals():
+            lower_bound2 = np.array([max(0, c - e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
+            upper_bound2 = np.array([min(255, c + e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
+            mask2 = cv.inRange(hsv_image,lower_bound2, upper_bound2)
+
+            # ouverture
+            # Erosion
+            kernel = np.ones((5,5), np.uint8)
+            mask2_eroded = cv.erode(mask2,kernel, 1)
+            #dilation
+            mask2_new = cv.dilate(mask2_eroded,kernel, 1)
+
+            #fermeture
+            # dilation
+            kernel = np.ones((5,5), np.uint8)
+            mask2_dilated = cv.dilate(mask2_new,kernel, 1)
+            # erosion
+            mask2_new = cv.erode(mask2_dilated,kernel, 1)
+
+
+            # Gradient
+            kernel_grad = np.ones((3,3))
+            mask2_grad = cv.morphologyEx(mask2_new, cv.MORPH_GRADIENT, kernel_grad )
+            circles = cv.HoughCircles(mask2_grad,cv.HOUGH_GRADIENT ,dp=1, minDist=1,
+                          param1=10, param2=30, minRadius=10, maxRadius=1000)
+            
+            if (circles is not None ) :
+             
+                circles = np.uint16(np.around(circles))
+                    # circle[0,0]: x, circle[0,1]: y, circle[0,2]: rayon
+                circle = circles[0,0]
+                # Récupération de la couleur HSV au centre du cercle détecté
+                hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+                ref_color_hsv = hsv_image[circle[1], circle[0], :]
+                print("Couleur sélectionnée (HSV):", ref_color_hsv)
+                cv.circle(image, (circle[0], circle[1]), circle[2], (0, 255, 0), 2)  # Cercle vert sur l'image couleur
+                cv.circle(image, (circle[0], circle[1]), 2, (0, 0, 255), 3)     # Centre en rouge
+                cv.circle(mask2_grad, (circle[0], circle[1]), circle[2], 150, 2)  # Cercle vert sur l'image couleur
+                cv.circle(mask2_grad, (circle[0], circle[1]), 2, 150, 3)     # Centre en rouge
+                # print("cercle identifié")
+                #garder le ratio, réduire de 50 %
+                display = cv.resize(image, (0, 0), fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
+                cv.imshow("video", display)#recharge l'image
+                display_grad = cv.resize(mask2_grad, (0, 0), fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
+                cv.imshow("video_grad", display_grad)#recharge l'image
+                # print(circle)
+
+        if cv.waitKey(1) & 0xFF == 27: #quit with ESC
+            break
+
+
+
+
+cv.destroyAllWindows()
