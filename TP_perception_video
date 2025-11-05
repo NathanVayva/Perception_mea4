@@ -1,111 +1,124 @@
 import cv2 as cv
 import numpy as np
-# cap = cv.VideoCapture("/home/nathan/Documents/mea4/Perception/balle.mp4")  # Ouvre la vidéo
 
-# while cap.isOpened():
-#     ret, frame = cap.read()
-#     if not ret:
-#         break
-#     cv.imshow("video", frame)
-#     if cv.waitKey(1) & 0xFF == 27:  # Quitter avec Échap
-#         break
-
-# cap.release()
-# cv.destroyAllWindows()
-
+# Ouvre la vidéo (remplace le chemin si nécessaire)
 cap = cv.VideoCapture("/home/nathan/Documents/mea4/Perception/balle.mp4")
 
-# resize 
-# cv.namedWindow("mon image", cv.WINDOW_NORMAL)
-# cv.resizeWindow("mon image", 2*640, 2*480)  # fenêtre fixe 640x480
-
+# Lit la première image pour initialiser les variables et extraire une couleur de référence
 ret, image = cap.read()
+# Conversion BGR -> HSV (utile pour les comparaisons de couleur)
 hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
 
-epsilon_hsv = [10 ,120, 120]
+# epsilon_hsv : tolérances appliquées sur H, S, V lors du masque
+epsilon_hsv = [10, 120, 120]
+# passage : drapeau pour éviter d'afficher plusieurs fois la même annotation
 passage = 0
 
-size_image = image.size
-shape_image = image.shape
-longueur = shape_image[0]
-largeur = shape_image[1]
+# Informations sur la taille de l'image
+size_image = image.size           # nombre total d'éléments
+shape_image = image.shape         # (hauteur, largeur, canaux)
+longueur = shape_image[0]         # hauteur
+largeur = shape_image[1]          # largeur
 
-i=0
-j=0
-while i <= longueur and j <= largeur -5 and not 'reussite' in locals():
-    if 15 < hsv_image[i,j,0] < 20 and 150 < hsv_image[i,j,1] < 255 and 150 < hsv_image[i,j,2] < 230:
+# Balayage rapide de la première image pour trouver une couleur candidate de la balle
+# i et j sautent par pas de 5 pour accélérer la recherche
+i = 0
+j = 0
+# On parcourt l'image jusqu'à trouver ('reussite' créé à la première détection)
+while i <= longueur and j <= largeur - 5 and not 'reussite' in locals():
+    # Conditions sur H, S, V pour repérer une teinte proche de la balle (exemple)
+    if 15 < hsv_image[i, j, 0] < 20 and 150 < hsv_image[i, j, 1] < 255 and 150 < hsv_image[i, j, 2] < 230:
+        # Dessine un petit point vert sur la position détectée (visualisation)
         cv.circle(image, (j, i), 2, (0, 255, 0), 2)
-        global ref_color 
-        ref_color_hsv= hsv_image[i,j,:]
+        # stocke la couleur HSV du pixel détecté comme référence initiale
+        ref_color_hsv = hsv_image[i, j, :]
         print("Couleur sélectionnée (HSV):", ref_color_hsv)
+        # indique que la recherche initiale a réussi
         reussite = True
+    # Si on a atteint le bas de l'image, on décale la colonne et on recommence depuis le haut
     if i >= longueur - 5:
-         j+=5
-         i=0
-    i+=5
+        j += 5
+        i = 0
+    i += 5
+
+# Affiche la première image annotée (avec le point vert si trouvé)
 cv.imshow("mon image", image)
 
-
-
+# Boucle principale : traite chaque image (frame) de la vidéo
 while cap.isOpened():
-        ret, image = cap.read()
-        if not ret:
-            break
-        hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+    ret, image = cap.read()
+    if not ret:
+        break  # fin de la vidéo
 
-    
-    
-        if 'ref_color_hsv' in globals():
-            lower_bound2 = np.array([max(0, c - e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
-            upper_bound2 = np.array([min(255, c + e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
-            mask2 = cv.inRange(hsv_image,lower_bound2, upper_bound2)
+    # Conversion BGR -> HSV pour la frame courante
+    hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
 
-            # ouverture
-            # Erosion
-            kernel = np.ones((5,5), np.uint8)
-            mask2_eroded = cv.erode(mask2,kernel, 1)
-            #dilation
-            mask2_new = cv.dilate(mask2_eroded,kernel, 1)
+    # Si une couleur de référence HSV a été définie (soit par le balayage initial, soit par autre méthode)
+    if 'ref_color_hsv' in globals():
+        # Calcule des bornes HSV en appliquant une tolérance par composante
+        lower_bound2 = np.array([max(0, c - e) for c, e in zip(ref_color_hsv, epsilon_hsv)])
+        upper_bound2 = np.array([min(255, c + e) for c, e in zip(ref_color_hsv, epsilon_hsv)])
+        # mask2 : pixels dont la couleur HSV est dans l'intervalle [lower_bound2, upper_bound2]
+        mask2 = cv.inRange(hsv_image, lower_bound2, upper_bound2)
 
-            #fermeture
-            # dilation
-            kernel = np.ones((5,5), np.uint8)
-            mask2_dilated = cv.dilate(mask2_new,kernel, 1)
-            # erosion
-            mask2_new = cv.erode(mask2_dilated,kernel, 1)
+        # --- Nettoyage morphologique (ouverture puis fermeture) ---
+        # Ouverture : érosion puis dilation pour enlever le bruit
+        kernel = np.ones((5, 5), np.uint8)
+        mask2_eroded = cv.erode(mask2, kernel, 1)
+        mask2_new = cv.dilate(mask2_eroded, kernel, 1)
 
+        # Fermeture : dilation puis erosion pour combler les petits trous
+        kernel = np.ones((5, 5), np.uint8)
+        mask2_dilated = cv.dilate(mask2_new, kernel, 1)
+        mask2_new = cv.erode(mask2_dilated, kernel, 1)
 
-            # Gradient
-            kernel_grad = np.ones((3,3))
-            mask2_grad = cv.morphologyEx(mask2_new, cv.MORPH_GRADIENT, kernel_grad )
-            circles = cv.HoughCircles(mask2_grad,cv.HOUGH_GRADIENT ,dp=1, minDist=1,
-                          param1=10, param2=30, minRadius=10, maxRadius=1000)
-            
-            if (circles is not None ) :
-             
-                circles = np.uint16(np.around(circles))
-                    # circle[0,0]: x, circle[0,1]: y, circle[0,2]: rayon
-                circle = circles[0,0]
-                # Récupération de la couleur HSV au centre du cercle détecté
-                hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-                ref_color_hsv = hsv_image[circle[1], circle[0], :]
-                print("Couleur sélectionnée (HSV):", ref_color_hsv)
-                cv.circle(image, (circle[0], circle[1]), circle[2], (0, 255, 0), 2)  # Cercle vert sur l'image couleur
-                cv.circle(image, (circle[0], circle[1]), 2, (0, 0, 255), 3)     # Centre en rouge
-                cv.circle(mask2_grad, (circle[0], circle[1]), circle[2], 150, 2)  # Cercle vert sur l'image couleur
-                cv.circle(mask2_grad, (circle[0], circle[1]), 2, 150, 3)     # Centre en rouge
-                # print("cercle identifié")
-                #garder le ratio, réduire de 50 %
-                display = cv.resize(image, (0, 0), fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
-                cv.imshow("video", display)#recharge l'image
-                display_grad = cv.resize(mask2_grad, (0, 0), fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
-                cv.imshow("video_grad", display_grad)#recharge l'image
-                # print(circle)
+        # --- Gradient morphologique ---
+        # Remarque : kernel_grad devrait idéalement être de type uint8 pour morphologyEx
+        kernel_grad = np.ones((3, 3), np.uint8)
+        mask2_grad = cv.morphologyEx(mask2_new, cv.MORPH_GRADIENT, kernel_grad)
 
-        if cv.waitKey(1) & 0xFF == 27: #quit with ESC
-            break
+        # Détection de cercles avec la transformée de Hough
+        # - méthode (cv.HOUGH_GRADIENT) obligatoire,
+        # - dp : résolution de l'accumulateur,
+        # - minDist : distance minimale entre centres détectés,
+        # - param1 : seuil Canny, param2 : seuil dans l'accumulateur (plus grand -> détection plus stricte),
+        # - minRadius / maxRadius : rayon minimal / maximal considéré.
+        circles = cv.HoughCircles(mask2_grad, cv.HOUGH_GRADIENT, dp=1, minDist=1,
+                                 param1=10, param2=30, minRadius=10, maxRadius=1000)
 
+        # Si des cercles sont détectés, traiter le premier (ou tous si besoin)
+        if (circles is not None):
+            # conversion et arrondi des valeurs en entiers
+            circles = np.uint16(np.around(circles))
+            # circle = [x, y, r] pour le premier cercle détecté
+            circle = circles[0, 0]
 
+            # Récupération exacte de la couleur HSV au centre du cercle détecté
+            # (on reconvertit l'image en HSV plus haut déjà)
+            ref_color_hsv = hsv_image[circle[1], circle[0], :]
+            print("Couleur sélectionnée (HSV):", ref_color_hsv)
 
+            # Dessin du cercle détecté et de son centre sur l'image couleur
+            # cv.circle attend des entiers pour les coordonnées et le rayon
+            cx, cy, r = int(circle[0]), int(circle[1]), int(circle[2])
+            cv.circle(image, (cx, cy), r, (0, 255, 0), 2)    # contour du cercle en vert
+            cv.circle(image, (cx, cy), 2, (0, 0, 255), 3)    # centre en rouge
 
+            # Dessin aussi sur l'image gradient (mask2_grad) pour visualiser la correspondance
+            # mask2_grad est en niveaux de gris : on dessine avec une valeur scalaire (par ex. 150)
+            cv.circle(mask2_grad, (cx, cy), r, 150, 2)
+            cv.circle(mask2_grad, (cx, cy), 2, 150, 3)
+
+            # Redimensionne pour l'affichage (garder le ratio, réduite de 50 %)
+            display = cv.resize(image, (0, 0), fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
+            cv.imshow("video", display)
+            display_grad = cv.resize(mask2_grad, (0, 0), fx=0.5, fy=0.5, interpolation=cv.INTER_AREA)
+            cv.imshow("video_grad", display_grad)
+
+    # waitKey permet à l'interface graphique d'OpenCV de se mettre à jour et capter les touches
+    if cv.waitKey(1) & 0xFF == 27:  # appuyer sur ESC pour quitter
+        break
+
+# Libère les ressources et ferme les fenêtres
 cv.destroyAllWindows()
+cap.release()

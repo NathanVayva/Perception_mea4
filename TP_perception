@@ -2,97 +2,110 @@ import cv2 as cv
 import sys
 import numpy as np
 
+# Lecture de l'image depuis le disque (OpenCV lit en BGR)
 image = cv.imread("/home/nathan/Documents/mea4/Perception/balle_small.jpg")
+# Conversion BGR -> HSV (utile pour le traitement de couleur)
+# Remarque : si image est None, cette ligne provoquera une erreur. 
+# Il serait plus sûr de faire cette conversion après vérification que image n'est pas None.
 hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
 
+# Callback souris : récupère la couleur du pixel cliqué
 def get_color(event, x, y, flags, param):
     global ref_color
     global ref_color_hsv
     global passage 
+    # ATTENTION : ici passage est affecté à 0 à chaque appel du callback,
+    # ce qui réinitialise la variable à chaque clic — probablement non voulu.
     passage = 0
     if event == cv.EVENT_LBUTTONDOWN:
-        ref_color = image[y, x].tolist()  # BGR
+        # ref_color : couleur en BGR (liste de 3 entiers)
+        ref_color = image[y, x].tolist()  # accès par [ligne, colonne] => [y, x]
         print("Couleur sélectionnée (BGR):", ref_color)
+        # ref_color_hsv : même pixel dans l'espace HSV
         ref_color_hsv = hsv_image[y, x].tolist()  # HSV
         print("Couleur sélectionnée (HSV):", ref_color_hsv)
 
+# Vérification que l'image a bien été chargée
 if image is None:
     print("Erreur : image introuvable.")
 else:
     print("Image chargée avec succès !")
 
+    # epsilon pour l'espace BGR (non utilisé ici, laissé pour référence)
     epsilon = 100
+    # epsilon par composante HSV (trois valeurs : H, S, V)
     epsilon_hsv = [80 ,150, 255]
 
+    # dimensions de l'image : hauteur, largeur
     hauteur, largeur = image.shape[:2]
     
+    # Affiche l'image initiale et attache le callback souris
     cv.imshow("mon image", image)
+    # Il faut appeler namedWindow si vous voulez redimensionner la fenêtre ensuite
     cv.setMouseCallback("mon image", get_color)
 
 
+    # Boucle principale : attend les interactions (clic) puis traite l'image
     while True:
-        # if 'ref_color' in globals():
-        #     lower_bound = np.array([max(0, c - epsilon) for c in ref_color])
-        #     upper_bound = np.array([min(255, c + epsilon) for c in ref_color])
-        #     mask = cv.inRange(image, lower_bound, upper_bound)
-        #     cv.imshow("mask_rgb", mask)
-
+        # Si une couleur de référence en HSV a été définie (clic souris),
+        # on calcule les bornes et on construit un masque
         if 'ref_color_hsv' in globals():
+            # lower_bound2 et upper_bound2 : bornes HSV par composante
+            # zip permet d'appliquer un epsilon différent à H, S et V
             lower_bound2 = np.array([max(0, c - e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
             upper_bound2 = np.array([min(255, c + e) for c,e in zip(ref_color_hsv, epsilon_hsv)])
+            # mask2 : masque binaire où les pixels HSV sont dans l'intervalle
             mask2 = cv.inRange(hsv_image, lower_bound2, upper_bound2)
             print(lower_bound2)
 
-            # ouverture
-            # Erosion
+            # --- nettoyage morphologique du masque ---
+            # ouverture : érosion puis dilation pour supprimer le bruit
             kernel = np.ones((5,5), np.uint8)
             mask2_eroded = cv.erode(mask2,kernel, 1)
-            #dilation
             mask2_new = cv.dilate(mask2_eroded,kernel, 1)
 
-            #fermeture
-            # dilation
+            # fermeture : dilation puis érosion (pour combler les trous)
             kernel = np.ones((5,5), np.uint8)
             mask2_dilated = cv.dilate(mask2_new,kernel, 1)
-            # erosion
             mask2_new = cv.erode(mask2_dilated,kernel, 1)
 
-            # Calcul du centroïde
+            # Exemple de calcul de centroïde (version commentée dans le code original)
+            # on pourrait parcourir tous les pixels du masque et cumuler i,j quand mask2[i,j] != 0
             sum_i, sum_j, count = 0, 0, 0
+            # (code de calcul du centroïde commenté dans le fichier original)
 
-
-            # for i in range (hauteur):
-            #     for j in range (largeur):
-            #         if mask2[i,j] != 0:
-            #             sum_i += i
-            #             sum_j += j
-            #             count += 1
-            # center_i = sum_i // count
-            # center_j = sum_j // count
-            # cv.circle(mask2, (center_j, center_i), 5, 130, -1)
-            # cv.imshow("mask_hsv", mask2)
-            #cv.imshow("mask_hsv_new", mask2_new)
-
-            # Gradient
+            # Gradient morphology (dérivée) : utile pour HoughCircles dans ce code
+            # Remarque : kernel_grad devrait être de type entier (np.uint8) — ici np.ones((3,3))
             kernel_grad = np.ones((3,3))
             mask2_grad = cv.morphologyEx(mask2_new, cv.MORPH_GRADIENT, kernel_grad )
             cv.imshow("mask_hsv_grad", mask2_grad)
+
+            # Détection de cercles par la transformée de Hough
+            # method obligatoire : cv.HOUGH_GRADIENT (déjà fourni)
+            # dp : ratio résolution accumulateur, minDist : distance min entre centres
+            # param1 : seuil Canny, param2 : seuil accumulateur
+            # minRadius / maxRadius : rayon minimal / maximal des cercles recherchés
             circles = cv.HoughCircles(mask2_grad,cv.HOUGH_GRADIENT ,dp=1, minDist=1,
                           param1=10, param2=30, minRadius=10, maxRadius=1000)
             
+            # Si des cercles sont trouvés, on les arrondit et on affiche le premier
             if (circles is not None and passage == 0) :
                 passage = 1
+                # conversion en entiers et arrondi des coordonnées/rayon
                 circles = np.uint16(np.around(circles))
-                    # circle[0,0]: x, circle[0,1]: y, circle[0,2]: rayon
+                # circle contient [x, y, rayon] pour le premier cercle détecté
                 circle = circles[0,0]
-                image_cercle = image.copy()  # Crée une copie de l'image originale
-                cv.circle(image_cercle, (circle[0], circle[1]), circle[2], (0, 255, 0), 2)  # Cercle vert sur l'image couleur
-                cv.circle(image_cercle, (circle[0], circle[1]), 2, (0, 0, 255), 3)     # Centre en rouge
+                image_cercle = image.copy()  # Crée une copie pour ne pas modifier l'original
+                # cv.circle attend des entiers ; si besoin, convertir : int(circle[0]), ...
+                cv.circle(image_cercle, (circle[0], circle[1]), circle[2], (0, 255, 0), 2)  # cercle (vert) sur image couleur
+                cv.circle(image_cercle, (circle[0], circle[1]), 2, (0, 0, 255), 3)     # centre (rouge)
                 print("cercle identifié")
-                cv.imshow("mon image", image_cercle) #recharge l'image
+                cv.imshow("mon image", image_cercle) # mettre à jour la fenêtre avec l'image annotée
                 print(circle)
 
-        if cv.waitKey(1) & 0xFF == 27: #quit with ESC
+        # waitKey nécessaire pour que les imshow fonctionnent et pour lire les touches
+        if cv.waitKey(1) & 0xFF == 27: # quitter avec la touche Échap
             break
     
+    # Ferme toutes les fenêtres OpenCV
     cv.destroyAllWindows()
