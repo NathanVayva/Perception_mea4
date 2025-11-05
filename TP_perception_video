@@ -10,7 +10,7 @@ ret, image = cap.read()
 hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
 
 # epsilon_hsv : tolérances appliquées sur H, S, V lors du masque
-epsilon_hsv = [10, 120, 120]
+epsilon_hsv = [11, 110, 125]
 # passage : drapeau pour éviter d'afficher plusieurs fois la même annotation
 passage = 0
 
@@ -63,12 +63,12 @@ while cap.isOpened():
 
         # --- Nettoyage morphologique (ouverture puis fermeture) ---
         # Ouverture : érosion puis dilation pour enlever le bruit
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
         mask2_eroded = cv.erode(mask2, kernel, 1)
         mask2_new = cv.dilate(mask2_eroded, kernel, 1)
 
         # Fermeture : dilation puis erosion pour combler les petits trous
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
         mask2_dilated = cv.dilate(mask2_new, kernel, 1)
         mask2_new = cv.erode(mask2_dilated, kernel, 1)
 
@@ -84,7 +84,7 @@ while cap.isOpened():
         # - param1 : seuil Canny, param2 : seuil dans l'accumulateur (plus grand -> détection plus stricte),
         # - minRadius / maxRadius : rayon minimal / maximal considéré.
         circles = cv.HoughCircles(mask2_grad, cv.HOUGH_GRADIENT, dp=1, minDist=1,
-                                 param1=10, param2=30, minRadius=10, maxRadius=1000)
+                                 param1=100, param2=20, minRadius=10, maxRadius=500)
 
         # Si des cercles sont détectés, traiter le premier (ou tous si besoin)
         if (circles is not None):
